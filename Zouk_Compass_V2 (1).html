@@ -1,6 +1,69 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
+<style id="__gate_style">body{visibility:hidden !important}</style>
+<script>
+(function(){
+  var STORAGE_KEY = 'zc_access_ok_v1';
+  var HASH_HEX = 'eef17faa166b7c0ff427e45ea4537ef17629d5c10a0016c23c30da78cedd2912';
+  function toHex(buf){
+    return Array.prototype.map.call(new Uint8Array(buf), function(b){return ('0'+b.toString(16)).slice(-2);}).join('');
+  }
+  function sha256hex(msg){
+    var enc = new TextEncoder().encode(msg);
+    return crypto.subtle.digest('SHA-256', enc).then(toHex);
+  }
+  function reveal(){
+    var st = document.getElementById('__gate_style');
+    if(st) st.parentNode.removeChild(st);
+    var ov = document.getElementById('__gate_overlay');
+    if(ov) ov.parentNode.removeChild(ov);
+  }
+  function showGate(){
+    var ov = document.createElement('div');
+    ov.id = '__gate_overlay';
+    ov.style.cssText = 'visibility:visible;position:fixed;inset:0;background:#1F2126;display:flex;align-items:center;justify-content:center;z-index:2147483647;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;';
+    ov.innerHTML = '<div style="background:#fff;padding:32px 36px;border-radius:12px;max-width:320px;width:90%;box-shadow:0 8px 30px rgba(0,0,0,.3);text-align:center;">'
+      + '<div style="font-size:18px;font-weight:600;margin-bottom:6px;color:#1F2126;">Zouk Compass</div>'
+      + '<div style="font-size:13px;color:#565A62;margin-bottom:16px;">Enter the access code to view this report.</div>'
+      + '<input id="__gate_pw" type="password" placeholder="Access code" autocomplete="off" style="width:100%;padding:10px 12px;border:1px solid #D9D6CE;border-radius:8px;font-size:14px;margin-bottom:10px;box-sizing:border-box;">'
+      + '<button id="__gate_btn" style="width:100%;padding:10px 12px;border:none;border-radius:8px;background:#4C5FA8;color:#fff;font-size:14px;font-weight:600;cursor:pointer;">Unlock</button>'
+      + '<div id="__gate_err" style="color:#D03B3B;font-size:12px;margin-top:10px;min-height:14px;"></div>'
+      + '</div>';
+    document.body.appendChild(ov);
+    var pwInput = document.getElementById('__gate_pw');
+    var errDiv = document.getElementById('__gate_err');
+    function attempt(){
+      var val = pwInput.value;
+      if(!val){ return; }
+      sha256hex(val).then(function(hex){
+        if(hex === HASH_HEX){
+          try{ sessionStorage.setItem(STORAGE_KEY, '1'); }catch(e){}
+          reveal();
+        } else {
+          errDiv.textContent = 'Incorrect code. Try again.';
+          pwInput.value='';
+          pwInput.focus();
+        }
+      });
+    }
+    document.getElementById('__gate_btn').addEventListener('click', attempt);
+    pwInput.addEventListener('keydown', function(e){ if(e.key==='Enter') attempt(); });
+    setTimeout(function(){ pwInput.focus(); }, 50);
+  }
+  function init(){
+    var ok = false;
+    try{ ok = sessionStorage.getItem(STORAGE_KEY) === '1'; }catch(e){}
+    if(ok){ reveal(); } else { showGate(); }
+  }
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>
+
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Zouk Compass V2</title>
