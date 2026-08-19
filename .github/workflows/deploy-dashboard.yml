@@ -1,0 +1,30 @@
+name: Deploy dashboard from compressed upload
+
+on:
+  push:
+    paths:
+      - 'deploy/dashboard.html.gz'
+
+permissions:
+  contents: write
+
+jobs:
+  decompress-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Decompress dashboard into place
+        run: gunzip -c "deploy/dashboard.html.gz" > "Zouk_Compass_V2 (1).html"
+      - name: Commit and push decompressed dashboard
+        run: |
+          git config user.name "dashboard-deploy-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add "Zouk_Compass_V2 (1).html"
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Auto-deploy dashboard from compressed upload"
+            git push
+          fi
