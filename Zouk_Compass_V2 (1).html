@@ -2975,7 +2975,7 @@ const TAB_FILTERS = {
 
 const ST = { sel: {}, q: "", splitAsc: true,
              period: "ALL", dFrom: null, dTo: null, sort: {}, colW: {},
-             s2Charts: false, selectedAd: null };
+             s2Charts: false, selectedAd: null, s2ExtraCols: false };
 FDEF.forEach(f => ST.sel[f.id] = new Set());
 
 function passes(r, skipId) {
@@ -3388,6 +3388,18 @@ function assetAnchor(rec, innerHTML) {
   const link = rec && rec.assetLink;
   if (!link) return innerHTML;
   return `<a href="${esc(link)}" target="_blank" rel="noopener" class="adlink" title="Open creative" onclick="event.stopPropagation()">${innerHTML}</a>`;
+}
+
+/* Ad names follow a fixed 13-segment naming convention (see parseAdName) where the 3rd
+   segment is always the creative type, IMG or VID - collection_category_TYPE_partner_...
+   Naval only needs enough of the name to recognise the ad at a glance in this table; the
+   full name (for pasting into Ads Manager or a file) is one click away via the copy button
+   next to it, so the on-screen text truncates right after that 3rd segment. Anything that
+   doesn't follow the convention (wrong segment count) is shown in full rather than guessed at. */
+function shortAdName(name) {
+  const s = String(name || "");
+  const parts = s.split("_");
+  return parts.length >= 3 ? parts.slice(0, 3).join("_") + ".." : s;
 }
 
 /* ============================ TOOLTIP ==================================
@@ -3955,10 +3967,6 @@ function sec2(c) {
     lb.push({ rec: latest, a, i: n++, key, rowsAll: rs, days: new Set(rs.map(r => r.dStart).filter(Boolean)).size,
               spend: a.spend, revenue: a.revenue, roas: a.roas });
   });
-  /* the ad picked for the trend chart can drop out of view (filters or period changed) -
-     quietly forget it rather than plotting stale data under a title that no longer matches */
-  const selectedAd = ST.selectedAd ? lb.find(o => o.key === ST.selectedAd) : null;
-  if (ST.selectedAd && !selectedAd) ST.selectedAd = null;
 
   $("#s2strip").innerHTML = stripHTML([
     ["", fmtCount(lb.length) + " ads", "lead"],
@@ -3975,9 +3983,11 @@ function sec2(c) {
   ]);
 
   /* Naval asked for the scatter charts to stay out of the way until asked for, so they sit
-     behind a checkbox, off by default. Picking a "Trend" ad from the table below turns the
-     checkbox on for you too, since there is no point selecting a trend you can't then see. */
-  $("#s2body").innerHTML = `<div id="s2tbl"></div>
+     behind a checkbox, off by default. */
+  $("#s2body").innerHTML = `<div style="display:flex;justify-content:flex-end;margin-bottom:6px">
+      <button type="button" class="lnk" id="s2colsToggle">${ST.s2ExtraCols ? "Hide extra columns ▴" : "Show extra columns (CPM, Impressions, Creator, ASC, Category, Type, Concept) ▾"}</button>
+    </div>
+    <div id="s2tbl"></div>
     <div class="card pad" style="margin-top:14px">
       <label class="fcheck"><input type="checkbox" id="s2chartsToggle" ${ST.s2Charts ? "checked" : ""}>Show the ROAS vs Spend / Hook rate / Hold rate charts</label>
     </div>
@@ -3985,11 +3995,6 @@ function sec2(c) {
       <div class="card pad" style="margin-top:14px"><h4 style="margin:0 0 2px;font-size:13px">ROAS vs Spend</h4>
         <p style="margin:0 0 4px;font-size:11.5px;color:var(--muted)">Every ad, spend on the x-axis, ROAS on the y-axis. Bubble size = revenue.</p>
         <div id="s2plotSpend"></div>
-        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
-          <h4 style="margin:0 0 2px;font-size:13px" id="s2trendTitle">Day-on-day trend for a selected ad</h4>
-          <p style="margin:0 0 4px;font-size:11.5px;color:var(--muted)">Click "Trend" next to any ad in the table below to plot that ad's own spend vs ROAS here, day by day, for the period selected above.</p>
-          <div id="s2plotTrend"></div>
-        </div>
       </div>
       <div class="card pad" style="margin-top:14px"><h4 style="margin:0 0 2px;font-size:13px">ROAS vs Hook rate</h4>
         <p style="margin:0 0 4px;font-size:11.5px;color:var(--muted)">Video ads only - are the ones that stop the scroll also the ones that convert?</p>
@@ -3999,6 +4004,7 @@ function sec2(c) {
         <div id="s2plotHold"></div></div>
     </div>`;
   $("#s2chartsToggle").onchange = e => { ST.s2Charts = e.target.checked; render(); };
+  $("#s2colsToggle").onclick = () => { ST.s2ExtraCols = !ST.s2ExtraCols; render(); };
 
   if (ST.s2Charts) {
     scatter($("#s2plotSpend"), lb, { mode: "spend" });
@@ -4012,40 +4018,45 @@ function sec2(c) {
       refValue: HOLD_MIN, refLabel: fmtPct(HOLD_MIN, 0) + " Hold benchmark",
       ariaLabel: "Hold rate versus ROAS by ad"
     });
-    if (selectedAd) {
-      $("#s2trendTitle").innerHTML = `Day-on-day trend - ${esc(selectedAd.rec.adName)} <button type="button" class="lnk" id="s2trendClear">Clear</button>`;
-      adSpendTrend($("#s2plotTrend"), selectedAd);
-      $("#s2trendClear").onclick = () => { ST.selectedAd = null; render(); };
-    } else {
-      $("#s2plotTrend").innerHTML = '<div class="empty">No ad selected yet.</div>';
-    }
   }
 
+  /* Fixed sequence Naval asked for: name/delivery/creative code up front, then Revenue through
+     LPV% always visible, with the rarer-use descriptive + CPM/Impressions columns tucked behind
+     the "Show extra columns" toggle above so the everyday table stays narrow. Trend button is
+     intentionally gone for now - a replacement is coming in a different form later. */
+  const mCols = metricCols(tot, { ...shareCaps(lb, tot), rows: lb });
+  const byId = id => mCols.find(m => m.id === id);
   const cols = [
-    { id: "adName", label: "Ad name", tl: true, stk: true, w: 300, val: r => r.rec.adName,
-      fmt: r => `<span class="wraptext" title="${r.rec.assetLink ? "" : "No source link on file"}">${assetAnchor(r.rec, esc(r.rec.adName))}</span>
-        <button type="button" class="trendbtn${ST.selectedAd === r.key ? " on" : ""}" data-key="${esc(r.key)}" title="Plot this ad's day-on-day spend vs ROAS below">${ST.selectedAd === r.key ? "Trend ✓" : "Trend"}</button>` },
+    { id: "adName", label: "Ad name", tl: true, stk: true, w: 260, val: r => r.rec.adName,
+      fmt: r => `<span class="wraptext" title="${esc(r.rec.adName)}">${assetAnchor(r.rec, esc(shortAdName(r.rec.adName)))}</span>
+        <button type="button" class="copybtn" data-name="${esc(r.rec.adName)}" title="Copy full ad name">⧉</button>` },
     { id: "delivery", label: "Delivery", tl: true, stk: true, w: 90, val: r => r.rec.status,
       fmt: r => `<span class="pill ${r.rec.status === "Live" ? "p-live" : "p-inactive"}"><span class="g" style="background:${r.rec.status === "Live" ? "var(--good)" : "var(--bad)"}"></span>${r.rec.status === "Live" ? "Active" : "Inactive"}</span>` },
-    { ...ascCol, w: 220, val: r => r.rec.campaign, fmt: r => `<span class="nowrapx" title="${esc(r.rec.campaign)}">${esc(shortAsc(r.rec.campaign))}</span>` },
     { id: "cid", label: "Creative", tl: true, w: 72, val: r => r.rec.cid, fmt: r => esc(r.rec.cid || "-") },
-    { id: "ctype", label: "Type", tl: true, w: 54, val: r => r.rec.contentType, fmt: r => esc(r.rec.contentType) },
+    byId("revenue"), byId("revShare"), byId("spend"), byId("spendShare"), byId("roas"),
+    byId("hook"), byId("hold"), byId("ctr"), byId("cvr"), byId("lpvPct")
+  ].filter(Boolean);
+  if (ST.s2ExtraCols) cols.push(...[
+    byId("cpm"), byId("impressions"),
+    { id: "creator", label: "Creator", tl: true, w: 110, val: r => r.rec.creator, fmt: r => `<span class="nowrapx" title="${esc(r.rec.creator)}">${esc(r.rec.creator)}</span>` },
+    { ...ascCol, w: 220, val: r => r.rec.campaign, fmt: r => `<span class="nowrapx" title="${esc(r.rec.campaign)}">${esc(shortAsc(r.rec.campaign))}</span>` },
     { id: "cat", label: "Category", tl: true, w: 120, val: r => r.rec.category, fmt: r => `<span class="nowrapx" title="${esc(r.rec.category)}">${esc(r.rec.category)}</span>` },
+    { id: "ctype", label: "Type", tl: true, w: 54, val: r => r.rec.contentType, fmt: r => esc(r.rec.contentType) },
     { id: "conceptFormat", label: "Concept / Format", tl: true, w: 200, noResize: true, val: r => r.rec.concept,
-      fmt: r => `<span class="nowrapx" title="${esc(r.rec.cCode)} · ${esc(r.rec.concept)}">${esc(r.rec.cCode)} · ${esc(r.rec.concept)}</span><span class="sub2eq nowrapx" title="${esc(r.rec.fCode)} · ${esc(r.rec.format)}">${esc(r.rec.fCode)} · ${esc(r.rec.format)}</span>` },
-    { id: "creator", label: "Creator", tl: true, w: 110, val: r => r.rec.creator, fmt: r => `<span class="nowrapx" title="${esc(r.rec.creator)}">${esc(r.rec.creator)}</span>` }
-  ];
-  cols.push(...metricCols(tot, { ...shareCaps(lb, tot), rows: lb }).filter(c => !["atcPct", "cpa", "aov"].includes(c.id)));
+      fmt: r => `<span class="nowrapx" title="${esc(r.rec.cCode)} · ${esc(r.rec.concept)}">${esc(r.rec.cCode)} · ${esc(r.rec.concept)}</span><span class="sub2eq nowrapx" title="${esc(r.rec.fCode)} · ${esc(r.rec.format)}">${esc(r.rec.fCode)} · ${esc(r.rec.format)}</span>` }
+  ].filter(Boolean));
   renderTable($("#s2tbl"), "s2", cols, lb, { total: tot, rowNoun: "ads" });
-  /* delegated on the table's host div (not the individual buttons) so a "Trend" click still
+  /* delegated on the table's host div (not the individual buttons) so a copy click still
      works after the header drag-resize handler re-renders just this table's own markup */
   $("#s2tbl").onclick = e => {
-    const btn = e.target.closest(".trendbtn");
+    const btn = e.target.closest(".copybtn");
     if (!btn) return;
     e.stopPropagation();
-    ST.selectedAd = (ST.selectedAd === btn.dataset.key) ? null : btn.dataset.key;
-    if (ST.selectedAd) ST.s2Charts = true;
-    render();
+    navigator.clipboard.writeText(btn.dataset.name).then(() => {
+      const prev = btn.textContent;
+      btn.textContent = "✓";
+      setTimeout(() => { if (btn.isConnected) btn.textContent = prev; }, 1200);
+    }).catch(() => {});
   };
   $("#s2body").insertAdjacentHTML("beforeend", howToRead(c));
 }
