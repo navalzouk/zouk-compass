@@ -331,7 +331,13 @@ td.cellpad>span{display:block;padding:5px 7px}
 .dep .verdict.no{color:var(--warn-ink)}
 
 /* scatter */
-.plotwrap{display:grid;grid-template-columns:1fr 172px;gap:14px}
+/* align-items:start (not the grid default "stretch") so neither column gets pulled taller
+   than its own content - without this, a legend with many rows (e.g. every ASC now that
+   nothing folds into "Other") could be taller than the chart's own fixed SVG height, and the
+   default "stretch" would then stretch the chart's wrapping div to match the taller legend,
+   leaving a blank gap below the actual plotted lines/axis instead of the chart genuinely
+   filling that space. */
+.plotwrap{display:grid;grid-template-columns:1fr 172px;gap:14px;align-items:start}
 @media(max-width:900px){.plotwrap{grid-template-columns:1fr}}
 .legend{display:flex;flex-direction:column;gap:7px;padding-top:6px}
 .lg{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--ink-2)}
