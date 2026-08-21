@@ -3728,11 +3728,11 @@ function campColor(camp) {
 }
 
 function comboLineSvg(days, series) {
-  /* Naval asked for a taller chart (closer to full-screenshot height) so the 0-4 ROAS scale
-     has more vertical room to separate lines that would otherwise sit close together - height
-     roughly doubled from the original 300px. Everything below is computed off H/M, so this is
-     the only number that needs to change to resize the whole chart. */
-  const W = 920, H = 640, M = { t: 12, r: 12, b: 22, l: 30 };
+  /* Height history: started at 300px, Naval asked for it taller (roughly doubled to 640px so
+     the 0-4 ROAS scale had more room to separate lines), then asked to bring it back down to
+     80% of that taller size (640 * 0.8 = 512px). Everything below is computed off H/M, so this
+     is the only number that needs to change to resize the whole chart. */
+  const W = 920, H = 512, M = { t: 12, r: 12, b: 22, l: 30 };
   const yMin = TREND_YMIN, yMax = TREND_YMAX;
   const lx = i => M.l + (days.length > 1 ? i / (days.length - 1) : 0.5) * (W - M.l - M.r);
   const ly = v => H - M.b - ((Math.min(v, yMax) - yMin) / (yMax - yMin)) * (H - M.t - M.b);
