@@ -3002,7 +3002,8 @@ const TAB_FILTERS = {
 
 const ST = { sel: {}, q: "", splitAsc: true,
              period: "ALL", dFrom: null, dTo: null, sort: {}, colW: {},
-             s2ChartsSel: { spend: false, hook: false, hold: false }, selectedAd: null, s2ExtraCols: false };
+             s2ChartsSel: { spend: false, hook: false, hold: false }, selectedAd: null, s2ExtraCols: false,
+             s1ChartOn: false };
 FDEF.forEach(f => ST.sel[f.id] = new Set());
 
 function passes(r, skipId) {
@@ -3165,6 +3166,11 @@ function fmtDay(iso) { if (!iso) return "?"; const t = String(iso).split("-");
   return t.length === 3 ? (+t[2]) + " " + MON[(+t[1]) - 1] + " " + t[0] : iso; }
 function fmtShort(iso) { if (!iso) return "?"; const t = String(iso).split("-");
   return t.length === 3 ? (+t[2]) + " " + MON[(+t[1]) - 1] + " " + t[0].slice(2) : iso; }
+/* axis tick label: bare day-of-month by default (e.g. "14"), with the month name
+   appended only when withMonth is true - used to label a chart's x-axis with one
+   number per day and the month spelled out just once, at the last tick. */
+function fmtAxisDay(iso, withMonth) { if (!iso) return "?"; const t = String(iso).split("-");
+  return t.length === 3 ? (+t[2]) + (withMonth ? " " + MON[(+t[1]) - 1] : "") : iso; }
 const shortAttr = a => String(a || "").replace("-day click", "d click").replace("-day view", "d view");
 function shiftDays(iso, n) { const d = new Date(iso + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10); }
 function applyPeriod(p, silent) {
@@ -3723,10 +3729,38 @@ function comboLineSvg(days, series) {
     stroke="var(--accent)" stroke-width="1" stroke-dasharray="3 3" opacity=".55"/>`);
   parts.push(`<line x1="${M.l}" x2="${W - M.r}" y1="${ly(ROAS_WATCH).toFixed(1)}" y2="${ly(ROAS_WATCH).toFixed(1)}"
     stroke="var(--warn)" stroke-width="1" stroke-dasharray="3 3" opacity=".4"/>`);
-  /* x-axis: a tick below the baseline for every day, though only the first and last
-     carry a printed date - one label per day would overlap at this chart width */
-  days.forEach((dd, i) => { const x = lx(i).toFixed(1);
-    parts.push(`<line x1="${x}" x2="${x}" y1="${H - M.b}" y2="${H - M.b + 3}" stroke="var(--muted)" stroke-width="1"/>`); });
+  /* x-axis: a tick below the baseline for every day (drawn for all of them, unconditionally).
+     Printed number labels are a separate, thinner set: on a short range (the 7-day default)
+     every single day gets its own label (14, 15, 16...); on a longer range they thin out
+     (roughly one per week at the full 51-day span) so they never overlap. The very last real
+     day is always forced into the label set, but if the regular stride would have landed a
+     label within one whole stride of it, that near-duplicate is dropped first - otherwise the
+     last two labels crowd together (e.g. "18" and "20 Aug" almost touching). The month name is
+     spelled out only on the very last label and wherever a shown label actually crosses into a
+     new month - a run of bare day numbers reads cleanly on its own within one month, but a
+     multi-month range needs the boundary called out or "29, 2, 6..." reads as one ever-climbing
+     month instead of two. */
+  days.forEach((dd, i) => {
+    const x = lx(i).toFixed(1);
+    parts.push(`<line x1="${x}" x2="${x}" y1="${H - M.b}" y2="${H - M.b + 3}" stroke="var(--muted)" stroke-width="1"/>`);
+  });
+  const AXIS_MAX_LABELS = 16;
+  const lastIdx = days.length - 1;
+  const axisStride = Math.max(1, Math.ceil(days.length / AXIS_MAX_LABELS));
+  const labelIdx = [0];
+  for (let i = axisStride; i <= lastIdx - axisStride; i += axisStride) labelIdx.push(i);
+  if (lastIdx > 0) labelIdx.push(lastIdx);
+
+  let lastShownMonth = String(days[0]).split("-")[1];
+  labelIdx.forEach(i => {
+    const dd = days[i], isFirst = i === 0, isLast = i === lastIdx;
+    const month = String(dd).split("-")[1];
+    const withMonth = isLast || (!isFirst && month !== lastShownMonth);
+    lastShownMonth = month;
+    const anchor = isFirst ? "start" : isLast ? "end" : "middle";
+    const xPos = isFirst ? M.l : isLast ? (W - M.r) : lx(i).toFixed(1);
+    parts.push(`<text x="${xPos}" y="${H - 5}" text-anchor="${anchor}" font-size="9" fill="var(--muted)">${fmtAxisDay(dd, withMonth)}</text>`);
+  });
 
   /* lines first, then points/markers on top, in the same fixed slot order for all layers -
      that order is what the palette's adjacent-pair validation covers, so it's kept stable
@@ -3747,8 +3781,6 @@ function comboLineSvg(days, series) {
     });
   });
 
-  parts.push(`<text x="${M.l}" y="${H - 5}" font-size="9" fill="var(--muted)">${fmtDay(days[0])}</text>
-    <text x="${W - M.r}" y="${H - 5}" text-anchor="end" font-size="9" fill="var(--muted)">${fmtDay(days[days.length - 1])}</text>`);
   parts.push("</svg>");
   return parts.join("");
 }
@@ -3969,10 +4001,14 @@ function sec1(c) {
     `<div class="tile ${hero ? "hero" : ""}"><div class="lab">${l}</div><div class="val">${v}</div><div class="sub">${s}</div></div>`).join("") + `</div>
     <div style="margin-top:14px" id="s1tbl"></div>
     <div class="card pad" style="margin-top:14px">
+      <div class="chartpicks"><label class="fcheck${ST.s1ChartOn ? " on" : ""}"><input type="checkbox" id="s1chartToggle" ${ST.s1ChartOn ? "checked" : ""}>Daily ROAS by campaign</label></div>
+    </div>
+    <div class="card pad" id="s1chartCard" style="margin-top:14px${ST.s1ChartOn ? "" : ";display:none"}">
       <h4 style="margin:0 0 2px;font-size:13px">Daily ROAS by campaign</h4>
       <p style="margin:0 0 4px;font-size:11.5px;color:var(--muted)">Each ASC's own day-on-day ROAS trajectory, for the period currently selected above.</p>
       <div id="s1trend"></div>
     </div>`;
+  $("#s1chartToggle").onchange = e => { ST.s1ChartOn = e.target.checked; render(); };
 
   const perAsc = [];
   groupBy(rows, r => r.campaign).forEach((rs, k) => perAsc.push({ campaign: k, rows: rs, a: agg(rs) }));
@@ -3981,7 +4017,9 @@ function sec1(c) {
     { id: "ads", label: "Live ads", val: r => liveAdsAsOf(r.rows), fmt: r => fmtInt(liveAdsAsOf(r.rows)), w: 56, tot: () => fmtInt(liveAdsAsOf(rows)) },
     ...metricCols(tot, { ...shareCaps(perAsc, tot), rows: perAsc })
   ], perAsc, { total: tot, short: true, rowNoun: "Campaigns" });
-  roasTrend($("#s1trend"), rows);
+  /* Chart is opt-in like Tab 2's scatter plots - only build it when the box is checked, both
+     to keep the page light by default and so roasTrend() is never handed an unrendered host. */
+  if (ST.s1ChartOn) roasTrend($("#s1trend"), rows);
   $("#s1body").insertAdjacentHTML("beforeend", howToRead(c));
 }
 
