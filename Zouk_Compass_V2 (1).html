@@ -3703,12 +3703,22 @@ const TREND_YMIN = 0, TREND_YMAX = 4;
    case); anything past the 8th distinct campaign this session folds into one grey
    "Other" line rather than reusing a hue. */
 const CAT_PALETTE = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"];
-const CAMP_OTHER_COLOR = "#898781";
 const campColorMap = new Map();
+/* Naval asked for every ASC on this chart, not folded into an "Other" bucket once the
+   campaign count passes the curated 8-colour palette above - so campaigns beyond that get a
+   generated hue instead of being grouped. Hues are spaced by the golden angle (137.508°),
+   which spreads any number of extra colours about as evenly as possible without needing to
+   know the final campaign count up front (new campaigns can still appear later as filters
+   change). Distinguishing dozens of line colours by eye necessarily gets harder as the count
+   grows - that's the explicit trade-off of "show everything", not an oversight. */
 function campColor(camp) {
   if (campColorMap.has(camp)) return campColorMap.get(camp);
-  if (campColorMap.size < CAT_PALETTE.length) { campColorMap.set(camp, CAT_PALETTE[campColorMap.size]); return campColorMap.get(camp); }
-  return null; /* overflow - caller folds these into "Other" */
+  const slot = campColorMap.size;
+  let color;
+  if (slot < CAT_PALETTE.length) color = CAT_PALETTE[slot];
+  else { const hue = (40 + (slot - CAT_PALETTE.length) * 137.508) % 360; color = `hsl(${hue.toFixed(1)}, 62%, 45%)`; }
+  campColorMap.set(camp, color);
+  return color;
 }
 
 function comboLineSvg(days, series) {
@@ -3807,24 +3817,18 @@ function roasTrend(host, rows) {
     });
   };
 
-  const primary = [], overflow = [];
+  /* Every campaign with data gets its own line - see campColor() for how colours are
+     assigned once the curated palette runs out; nothing gets grouped into an "Other" line. */
+  const series = [];
   campsBySpend.forEach(camp => {
     const pts = dayPtsFor(byCamp.get(camp));
     if (!pts.some(v => v !== null)) return;
-    const color = campColor(camp);
-    if (color) primary.push({ camp, pts, color });
-    else overflow.push(camp);
+    series.push({ camp, pts, color: campColor(camp) });
   });
-  /* keep draw/legend order pinned to each campaign's assigned slot (not spend), since
+  /* keep draw/legend order pinned to each campaign's assigned colour slot (not spend), since
      spend rank can reshuffle on every filter change and colour must not follow it */
   const slotOrder = Array.from(campColorMap.keys());
-  primary.sort((a, b) => slotOrder.indexOf(a.camp) - slotOrder.indexOf(b.camp));
-
-  const series = primary.slice();
-  if (overflow.length) {
-    const pts = dayPtsFor(overflow.flatMap(c => byCamp.get(c)));
-    if (pts.some(v => v !== null)) series.push({ camp: `Other ASCs (${overflow.length})`, pts, color: CAMP_OTHER_COLOR });
-  }
+  series.sort((a, b) => slotOrder.indexOf(a.camp) - slotOrder.indexOf(b.camp));
   if (!series.length) { host.innerHTML = '<div class="empty">Nothing to plot.</div>'; return; }
 
   const svg = comboLineSvg(days, series);
