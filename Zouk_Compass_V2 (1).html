@@ -279,6 +279,8 @@ td.cellpad>span{display:block;padding:5px 7px}
 .pill .g{width:5px;height:5px;border-radius:50%;flex:none}
 .p-live{background:var(--good-tint);color:var(--good-ink);border-color:#CFE7CF}
 .p-live .g{background:var(--good)}
+.p-inactive{background:var(--bad-tint);color:var(--bad-ink);border-color:#EFCFCF}
+.p-inactive .g{background:var(--bad)}
 .p-paused{background:var(--neutral-tint);color:var(--ink-2);border-color:var(--border)}
 .p-paused .g{background:var(--muted)}
 .p-scale{background:var(--good-tint);color:var(--good-ink);border-color:#CFE7CF}
@@ -2940,17 +2942,6 @@ function groupBy(rows, keyFn) {
    move with the account's own blended ROAS or with spend - a 1.51 ROAS is always Winning. */
 const HOOK_MIN = 0.25, HOLD_MIN = 0.25;
 const ROAS_WIN = 1.5, ROAS_WATCH = 1.3;
-function tierOf(r) {
-  if (r.roas === null || !isFinite(r.roas)) return "No data";
-  const roasR = Math.round(r.roas * 100) / 100;
-  if (roasR > ROAS_WIN) return "Winning";
-  if (roasR >= ROAS_WATCH) return "Watch";
-  return "Losing";
-}
-const TIER_CLASS = { "Winning": "p-scale", "Watch": "p-watch", "Losing": "p-cut", "No data": "p-none" };
-const TIER_COLOR = { "Winning": "var(--good)", "Watch": "var(--warn)", "Losing": "var(--bad)", "No data": "var(--muted)" };
-const TIER_ORDER = ["Winning", "Watch", "Losing", "No data"];
-const TIER_SHORT = { "Winning": "Win", "Watch": "Watch", "Losing": "Lose", "No data": "No data" };
 
 /* ============================ FILTER STATE ============================== */
 const FDEF = [
@@ -3517,7 +3508,7 @@ function scatter(host, rows, opts) {
   let clipped = 0, clippedX = 0;
   pts.slice().sort((a, b) => b.revenue - a.revenue).forEach(p => {
     const xv = xVal(p);
-    const c = TIER_COLOR[p.tier] || "var(--muted)", over = (p.roas || 0) > yMax, overX = xv > xCap;
+    const c = p.rec.status === "Live" ? "var(--good)" : "var(--bad)", over = (p.roas || 0) > yMax, overX = xv > xCap;
     if (over) clipped++;
     if (overX) clippedX++;
     svg.push(`<circle cx="${lx(xv).toFixed(1)}" cy="${ly(p.roas || 0).toFixed(1)}" r="${rad(p.revenue).toFixed(1)}"
@@ -3527,18 +3518,18 @@ function scatter(host, rows, opts) {
   });
   svg.push("</svg>");
 
-  const counts = {}; pts.forEach(p => counts[p.tier] = (counts[p.tier] || 0) + 1);
-  const legend = TIER_ORDER.filter(k => counts[k]).map(k =>
-    `<div class="lg"><span class="sw" style="background:${TIER_COLOR[k]}"></span>${k}<span class="ct">${counts[k]}</span></div>`).join("");
+  const counts = { Active: 0, Inactive: 0 };
+  pts.forEach(p => counts[p.rec.status === "Live" ? "Active" : "Inactive"]++);
+  const legend = ["Active", "Inactive"].filter(k => counts[k]).map(k =>
+    `<div class="lg"><span class="sw" style="background:${k === "Active" ? "var(--good)" : "var(--bad)"}"></span>${k}<span class="ct">${counts[k]}</span></div>`).join("");
 
   const capLabel = mode === "spend" ? fmtMoney(xCap) : (xCap * 100).toFixed(0) + "%";
   host.innerHTML = `<div class="plotwrap"><div>${svg.join("")}</div>
     <div class="legend">${legend}
-      <div class="lgnote">Bubble size = revenue. Above the dashed line is Winning. Below it is Watch or Losing.${xNote}${clipped ? `<br><b>▲ ${clipped}</b> ad${clipped > 1 ? "s" : ""} above ROAS ${yMax.toFixed(1)}, pinned to the top edge.` : ""}${clippedX ? `<br><b>▶ ${clippedX}</b> ad${clippedX > 1 ? "s" : ""} above ${capLabel}, pinned to the right edge.` : ""}</div>
+      <div class="lgnote">Bubble size = revenue. Dot colour = delivery status. Ads above the dashed line are past the Winning ROAS benchmark.${xNote}${clipped ? `<br><b>▲ ${clipped}</b> ad${clipped > 1 ? "s" : ""} above ROAS ${yMax.toFixed(1)}, pinned to the top edge.` : ""}${clippedX ? `<br><b>▶ ${clippedX}</b> ad${clippedX > 1 ? "s" : ""} above ${capLabel}, pinned to the right edge.` : ""}</div>
     </div></div>`;
 
   const tipHTML = p => `<div class="tt">${assetAnchor(p.rec, esc(p.rec.adName))}</div>
-        <div class="tr"><span>Tier</span><b>${p.tier}</b></div>
         <div class="tr"><span>Spend</span><b>${fmtMoneyFull(p.spend)}</b></div>
         <div class="tr"><span>Revenue</span><b>${fmtMoneyFull(p.revenue)}</b></div>
         <div class="tr"><span>ROAS</span><b>${fmtRatio(p.roas)}</b></div>
@@ -3572,7 +3563,8 @@ function adSpendTrend(host, ad) {
   const days = Array.from(byDay.keys()).sort();
   const pts = days.map(d => {
     const rs = byDay.get(d), a = agg(rs);
-    return (a.spend > 0 && isFinite(a.roas)) ? { day: d, a } : null;
+    const status = rs.length ? rs[rs.length - 1].status : ad.rec.status;
+    return (a.spend > 0 && isFinite(a.roas)) ? { day: d, a, status } : null;
   }).filter(Boolean);
   if (!pts.length) { host.innerHTML = '<div class="empty">No spend recorded for this ad in the days currently in view.</div>'; return; }
 
@@ -3615,7 +3607,7 @@ function adSpendTrend(host, ad) {
 
   let clipped = 0;
   pts.forEach((p, i) => {
-    const tier = tierOf({ roas: p.a.roas }), col = TIER_COLOR[tier] || "var(--muted)";
+    const col = p.status === "Live" ? "var(--good)" : "var(--bad)";
     const over = p.a.roas > yMax; if (over) clipped++;
     svg.push(`<circle cx="${lx(p.a.spend).toFixed(1)}" cy="${ly(p.a.roas).toFixed(1)}" r="4.5"
       fill="${col}" fill-opacity="${over ? ".8" : ".65"}" stroke="var(--card)" stroke-width="2" data-i="${i}" style="cursor:pointer"/>`
@@ -3627,7 +3619,6 @@ function adSpendTrend(host, ad) {
     <div class="lgnote" style="margin-top:6px">${fmtInt(pts.length)} day${pts.length > 1 ? "s" : ""} with spend for this ad, in the period selected above, joined in date order.${clipped ? ` <b>▲ ${clipped}</b> day${clipped > 1 ? "s" : ""} above ROAS ${yMax.toFixed(1)}, pinned to the top edge.` : ""} Hover a point for that day's full metrics, or click it to pin the popup open - double-click outside to close it.</div>`;
 
   const tipHTML = p => `<div class="tt">${esc(fmtDay(p.day))}</div>
-    <div class="tr"><span>Tier</span><b>${tierOf({ roas: p.a.roas })}</b></div>
     <div class="tr"><span>Spend</span><b>${fmtMoneyFull(p.a.spend)}</b></div>
     <div class="tr"><span>Revenue</span><b>${fmtMoneyFull(p.a.revenue)}</b></div>
     <div class="tr"><span>ROAS</span><b>${fmtRatio(p.a.roas)}</b></div>
@@ -3636,7 +3627,7 @@ function adSpendTrend(host, ad) {
     <div class="tr"><span>Concept</span><b>${esc(rec.concept)}</b></div>
     <div class="tr"><span>Format</span><b>${esc(rec.format)}</b></div>
     <div class="tr"><span>Creator</span><b>${esc(rec.creator)}</b></div>
-    <div class="tr"><span>Status</span><b>${esc(rec.status)}</b></div>
+    <div class="tr"><span>Status</span><b>${esc(p.status)}</b></div>
     <div class="tr"><span>CTR</span><b>${fmtPct(p.a.ctr, 2)}</b></div>
     <div class="tr"><span>Hook / Hold</span><b>${fmtPct(p.a.hook, 1)} / ${fmtPct(p.a.hold, 1)}</b></div>`;
 
@@ -3962,17 +3953,13 @@ function sec2(c) {
     const a = agg(rs);
     const latest = rs.reduce((x, y) => (y.dStart || "") > (x.dStart || "") ? y : x, rs[0]);
     lb.push({ rec: latest, a, i: n++, key, rowsAll: rs, days: new Set(rs.map(r => r.dStart).filter(Boolean)).size,
-              spend: a.spend, revenue: a.revenue, roas: a.roas,
-              tier: tierOf({ roas: a.roas }) });
+              spend: a.spend, revenue: a.revenue, roas: a.roas });
   });
   /* the ad picked for the trend chart can drop out of view (filters or period changed) -
      quietly forget it rather than plotting stale data under a title that no longer matches */
   const selectedAd = ST.selectedAd ? lb.find(o => o.key === ST.selectedAd) : null;
   if (ST.selectedAd && !selectedAd) ST.selectedAd = null;
 
-  const tierCount = {}; lb.forEach(o => tierCount[o.tier] = (tierCount[o.tier] || 0) + 1);
-  $("#s2right").innerHTML = TIER_ORDER.filter(k => tierCount[k]).map(k =>
-    `<span class="pill ${TIER_CLASS[k]}"><span class="g" style="background:${TIER_COLOR[k]}"></span>${k} ${tierCount[k]}</span>`).join(" ");
   $("#s2strip").innerHTML = stripHTML([
     ["", fmtCount(lb.length) + " ads", "lead"],
     ["Spend", fmtMoney(tot.spend)],
@@ -4038,8 +4025,8 @@ function sec2(c) {
     { id: "adName", label: "Ad name", tl: true, stk: true, w: 300, val: r => r.rec.adName,
       fmt: r => `<span class="wraptext" title="${r.rec.assetLink ? "" : "No source link on file"}">${assetAnchor(r.rec, esc(r.rec.adName))}</span>
         <button type="button" class="trendbtn${ST.selectedAd === r.key ? " on" : ""}" data-key="${esc(r.key)}" title="Plot this ad's day-on-day spend vs ROAS below">${ST.selectedAd === r.key ? "Trend ✓" : "Trend"}</button>` },
-    { id: "tier", label: "Delivery", tl: true, stk: true, w: 118, val: r => TIER_ORDER.indexOf(r.tier),
-      fmt: r => `<span class="pill ${TIER_CLASS[r.tier]}"><span class="g" style="background:${TIER_COLOR[r.tier]}"></span>${esc(r.rec.status)}-${TIER_SHORT[r.tier]}</span>` },
+    { id: "delivery", label: "Delivery", tl: true, stk: true, w: 90, val: r => r.rec.status,
+      fmt: r => `<span class="pill ${r.rec.status === "Live" ? "p-live" : "p-inactive"}"><span class="g" style="background:${r.rec.status === "Live" ? "var(--good)" : "var(--bad)"}"></span>${r.rec.status === "Live" ? "Active" : "Inactive"}</span>` },
     { ...ascCol, w: 220, val: r => r.rec.campaign, fmt: r => `<span class="nowrapx" title="${esc(r.rec.campaign)}">${esc(shortAsc(r.rec.campaign))}</span>` },
     { id: "cid", label: "Creative", tl: true, w: 72, val: r => r.rec.cid, fmt: r => esc(r.rec.cid || "-") },
     { id: "ctype", label: "Type", tl: true, w: 54, val: r => r.rec.contentType, fmt: r => esc(r.rec.contentType) },
@@ -4048,7 +4035,7 @@ function sec2(c) {
       fmt: r => `<span class="nowrapx" title="${esc(r.rec.cCode)} · ${esc(r.rec.concept)}">${esc(r.rec.cCode)} · ${esc(r.rec.concept)}</span><span class="sub2eq nowrapx" title="${esc(r.rec.fCode)} · ${esc(r.rec.format)}">${esc(r.rec.fCode)} · ${esc(r.rec.format)}</span>` },
     { id: "creator", label: "Creator", tl: true, w: 110, val: r => r.rec.creator, fmt: r => `<span class="nowrapx" title="${esc(r.rec.creator)}">${esc(r.rec.creator)}</span>` }
   ];
-  cols.push(...metricCols(tot, { ...shareCaps(lb, tot), rows: lb }).filter(c => c.id !== "lpvPct" && c.id !== "atcPct"));
+  cols.push(...metricCols(tot, { ...shareCaps(lb, tot), rows: lb }).filter(c => !["atcPct", "cpa", "aov"].includes(c.id)));
   renderTable($("#s2tbl"), "s2", cols, lb, { total: tot, rowNoun: "ads" });
   /* delegated on the table's host div (not the individual buttons) so a "Trend" click still
      works after the header drag-resize handler re-renders just this table's own markup */
