@@ -3370,7 +3370,12 @@ function metricCols(tot, opts = {}) {
     { id: "ctr", label: "CTR", val: r => r.a.ctr, fmt: r => fmtPct(r.a.ctr, 2), cls: r => perfCls(r.a.ctr, tot.ctr, true), w: 56, tot: g => fmtPct(g.ctr, 2), note: "Link clicks ÷ impressions. Green = at/better than this page's average, yellow = worse by up to 15%, red = worse by more than 15%." },
     { id: "lpvPct", label: "LPV", val: r => r.a.lpvPct, fmt: r => fmtPct(r.a.lpvPct, 1), cls: r => perfCls(r.a.lpvPct, tot.lpvPct, true), w: 58, tot: g => fmtPct(g.lpvPct, 1), note: "Landing page views ÷ link clicks, shown as a %. Green = at/better than this page's average, yellow = worse by up to 15%, red = worse by more than 15%." },
     { id: "atcPct", label: "ATC", val: r => r.a.atcPct, fmt: r => fmtPct(r.a.atcPct, 1), cls: r => perfCls(r.a.atcPct, tot.atcPct, true), w: 58, tot: g => fmtPct(g.atcPct, 1), note: "Adds to cart ÷ landing page views, shown as a %. Green = at/better than this page's average, yellow = worse by up to 15%, red = worse by more than 15%." },
-    { id: "cvr", label: "CVR", val: r => r.a.cvr, fmt: r => fmtPct(r.a.cvr, 2), cls: r => perfCls(r.a.cvr, tot.cvr, true), w: 56, tot: g => fmtPct(g.cvr, 2), note: "Purchases ÷ landing page views (Zouk metrics cheat sheet). Green = at/better than this page's average, yellow = worse by up to 15%, red = worse by more than 15%." },
+    { id: "cvr", label: "CVR", val: r => r.a.cvr, fmt: r => fmtPct(r.a.cvr, 2), cls: r => perfCls(r.a.cvr, tot.cvr, true), w: 56, tot: g => fmtPct(g.cvr, 2), note: "Purchases ÷ landing page views (Zouk metrics cheat sheet). Green = at/better than this page's average, yellow = worse by up to 15%, red = worse by more than 15%." }
+  );
+  /* CPA/AOV are opt-out (not opt-in) since sec1 (Tab 1) and the old sec2 (Tab 2) path both
+     spread every metricCols() column unconditionally and still want them - only rank(), the
+     shared renderer behind Tabs 3-7, passes cpaAov:false to drop them for those tabs specifically. */
+  if (opts.cpaAov !== false) cols.push(
     { id: "cpa", label: "CPA", val: r => r.a.cpa, fmt: r => r.a.cpa === null ? "-" : fmtMoneyFull(r.a.cpa), cls: r => perfCls(r.a.cpa, tot.cpa, false), w: 70, tot: g => g.cpa ? fmtMoneyFull(g.cpa) : "-", note: "Cost per purchase. Lower is better. Green = at/better than this page's average, yellow = worse by up to 15%, red = worse by more than 15%." },
     { id: "aov", label: "AOV", val: r => r.a.aov, fmt: r => r.a.aov === null ? "-" : fmtMoneyFull(r.a.aov), cls: r => perfCls(r.a.aov, tot.aov, true), w: 70, tot: g => g.aov ? fmtMoneyFull(g.aov) : "-", note: "Revenue ÷ purchases. Higher is better. Green = at/better than this page's average, yellow = worse by up to 15%, red = worse by more than 15%." }
   );
@@ -4106,7 +4111,10 @@ function rank(c, host, id, rowsIn, dims, extraCols, opts) {
   cols[0] = { ...cols[0], stk: true };
   cols.push({ id: "ads", label: "Ads", val: r => r.n, fmt: r => fmtInt(r.n), w: 44, tot: () => fmtInt(rowsIn.length) });
   (extraCols || []).forEach(x => cols.push(x));
-  cols.push(...metricCols(tot, Object.assign(shareCaps(g, tot), { rows: g }, opts.mc)));
+  /* Naval asked to drop CPA and AOV from Tabs 3-7 specifically (rank() is the shared renderer
+     behind all of them) - cpaAov:false here, not touched on sec1/sec2's own direct metricCols
+     calls, which still want those two columns. */
+  cols.push(...metricCols(tot, Object.assign(shareCaps(g, tot), { rows: g, cpaAov: false }, opts.mc)));
   renderTable(host, id, cols, g, { total: agg(rowsIn), short: g.length <= 14 });
 }
 
