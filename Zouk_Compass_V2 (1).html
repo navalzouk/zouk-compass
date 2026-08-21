@@ -340,7 +340,12 @@ td.cellpad>span{display:block;padding:5px 7px}
 .plotwrap{display:grid;grid-template-columns:1fr 172px;gap:14px;align-items:start}
 @media(max-width:900px){.plotwrap{grid-template-columns:1fr}}
 .legend{display:flex;flex-direction:column;gap:7px;padding-top:6px}
-.lg{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--ink-2)}
+.lg{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--ink-2);cursor:pointer;
+  padding:2px 5px;margin:-2px -5px;border-radius:5px;transition:.12s}
+.lg:hover{background:var(--accent-wash)}
+/* .sel marks whichever legend row is currently spotlighting its line in the daily ROAS chart -
+   click toggles it on/off, see roasTrend() in part4.js */
+.lg.sel{background:var(--accent-wash);color:var(--accent-2);font-weight:600}
 .lg .sw{width:9px;height:9px;border-radius:50%;flex:none;border:1.5px solid var(--card)}
 .lg .ct{margin-left:auto;color:var(--muted);font-variant-numeric:tabular-nums}
 .lgnote{font-size:10.5px;color:var(--muted);line-height:1.4;margin-top:4px;border-top:1px solid var(--border);padding-top:8px}
@@ -3729,10 +3734,11 @@ function campColor(camp) {
 
 function comboLineSvg(days, series) {
   /* Height history: started at 300px, Naval asked for it taller (roughly doubled to 640px so
-     the 0-4 ROAS scale had more room to separate lines), then asked to bring it back down to
-     80% of that taller size (640 * 0.8 = 512px). Everything below is computed off H/M, so this
-     is the only number that needs to change to resize the whole chart. */
-  const W = 920, H = 512, M = { t: 12, r: 12, b: 22, l: 30 };
+     the 0-4 ROAS scale had more room to separate lines), then asked twice in a row to bring it
+     back down to 80% of whatever it currently was: 640 * 0.8 = 512, then 512 * 0.8 = 409.6.
+     Everything below is computed off H/M, so this is the only number that needs to change to
+     resize the whole chart. */
+  const W = 920, H = 409.6, M = { t: 12, r: 12, b: 22, l: 30 };
   const yMin = TREND_YMIN, yMax = TREND_YMAX;
   const lx = i => M.l + (days.length > 1 ? i / (days.length - 1) : 0.5) * (W - M.l - M.r);
   const ly = v => H - M.b - ((Math.min(v, yMax) - yMin) / (yMax - yMin)) * (H - M.t - M.b);
@@ -3789,7 +3795,10 @@ function comboLineSvg(days, series) {
     let d = "", started = false;
     s.pts.forEach((v, i) => { if (v === null) { started = false; return; }
       d += (started ? "L" : "M") + lx(i).toFixed(1) + " " + ly(v.roas).toFixed(1) + " "; started = true; });
-    parts.push(`<path d="${d.trim()}" fill="none" stroke="${s.color}" stroke-width="1.8" opacity=".9"/>`);
+    /* data-camp + class "ln" let roasTrend() below find this exact line (and its own
+       data-camp'd points, already emitted a few lines down) when a legend entry is clicked,
+       so it can spotlight just this campaign's trajectory. */
+    parts.push(`<path d="${d.trim()}" fill="none" stroke="${s.color}" stroke-width="1.8" opacity=".9" class="ln" data-camp="${esc(s.camp)}"/>`);
   });
   series.forEach(s => {
     s.pts.forEach((v, i) => { if (v === null) return;
@@ -3843,10 +3852,10 @@ function roasTrend(host, rows) {
 
   const svg = comboLineSvg(days, series);
   const legend = series.map(s =>
-    `<div class="lg"><span class="sw" style="background:${s.color}"></span><span class="nowrapx" title="${esc(s.camp)}">${esc(shortAsc(s.camp))}</span></div>`).join("");
+    `<div class="lg" data-camp="${esc(s.camp)}"><span class="sw" style="background:${s.color}"></span><span class="nowrapx" title="${esc(s.camp)}">${esc(shortAsc(s.camp))}</span></div>`).join("");
 
   host.innerHTML = `<div class="plotwrap"><div>${svg}</div><div class="legend">${legend}</div></div>
-    <div class="lgnote" style="margin-top:12px">All ASC campaigns' day-on-day ROAS (revenue ÷ spend, 1-day click) for the days currently in view, on one shared ${TREND_YMIN}-${TREND_YMAX} scale. A ▲ marks a day that ran above ${TREND_YMAX}. The dashed lines mark the fixed Winning (${ROAS_WIN.toFixed(2)}) and Watch (${ROAS_WATCH.toFixed(2)}) thresholds. Each campaign keeps its own colour across filter and date changes. Hover a point for that day's spend, CPM, CTR and CVR, or click it to pin the popup open - double-click outside to close it. The table above has the same campaigns' full numbers in rows.</div>`;
+    <div class="lgnote" style="margin-top:12px">All ASC campaigns' day-on-day ROAS (revenue ÷ spend, 1-day click) for the days currently in view, on one shared ${TREND_YMIN}-${TREND_YMAX} scale. A ▲ marks a day that ran above ${TREND_YMAX}. The dashed lines mark the fixed Winning (${ROAS_WIN.toFixed(2)}) and Watch (${ROAS_WATCH.toFixed(2)}) thresholds. Each campaign keeps its own colour across filter and date changes. Click a name in the legend to spotlight just that campaign's line (click it again to show all). Hover a point for that day's spend, CPM, CTR and CVR, or click it to pin the popup open - double-click outside to close it. The table above has the same campaigns' full numbers in rows.</div>`;
 
   host.querySelectorAll("circle[data-camp]").forEach(el => {
     const html = () => `<div class="tt">${esc(el.dataset.camp)}</div>
@@ -3859,6 +3868,31 @@ function roasTrend(host, rows) {
     el.onmousemove = e => showTip(html(), e.pageX, e.pageY);
     el.onmouseleave = hideTip;
     el.onclick = e => { e.stopPropagation(); pinTip(html(), e.pageX, e.pageY); };
+  });
+
+  /* Clicking an ASC name in the legend spotlights that campaign's own trajectory line: its
+     path/points go to full opacity + a thicker stroke, every other campaign's line/points fade
+     to near-invisible, and the clicked legend row itself gets a highlighted background so it's
+     clear what's selected. Clicking the same legend row again (a toggle, not a one-way filter)
+     clears the selection and restores every line to its normal look. Selection state lives only
+     in this closure (`selectedCamp`), not in `ST` - it's a transient view aid tied to the chart
+     currently on screen, not something that should survive a re-render or be worth persisting
+     across filter/date changes the way `ST.s1ChartOn` is. */
+  let selectedCamp = null;
+  const lines = host.querySelectorAll("path.ln[data-camp]");
+  const points = host.querySelectorAll("circle[data-camp]");
+  const legendRows = host.querySelectorAll(".legend .lg[data-camp]");
+  const applyHighlight = () => {
+    lines.forEach(p => {
+      const on = !selectedCamp || p.dataset.camp === selectedCamp;
+      p.style.opacity = on ? ".95" : ".1";
+      p.style.strokeWidth = (selectedCamp && on) ? "2.6" : "1.8";
+    });
+    points.forEach(c => { c.style.opacity = (!selectedCamp || c.dataset.camp === selectedCamp) ? "1" : ".1"; });
+    legendRows.forEach(l => l.classList.toggle("sel", !!selectedCamp && l.dataset.camp === selectedCamp));
+  };
+  legendRows.forEach(l => {
+    l.onclick = () => { selectedCamp = selectedCamp === l.dataset.camp ? null : l.dataset.camp; applyHighlight(); };
   });
 }
 
