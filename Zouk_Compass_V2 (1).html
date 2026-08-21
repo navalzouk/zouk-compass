@@ -261,6 +261,23 @@ tbody tr.tot td.stk{background:var(--card-2);z-index:26}
 .adlink{color:var(--accent-2);text-decoration:none;border-bottom:1px dashed var(--accent-2);cursor:pointer}
 .adlink:hover{text-decoration:none;border-bottom-style:solid}
 
+/* Creative Podium ad-name cell: truncated name + copy-full-name button, on one line. Sized
+   to match the surrounding 12px table text (tbody td) rather than a browser-default button,
+   which reads oversized and block-level next to compact table copy. */
+.adnamewrap{display:flex;align-items:center;gap:5px;min-width:0}
+.adnamewrap .nowrapx{min-width:0}
+.copybtn{display:inline-flex;align-items:center;justify-content:center;flex:none;
+  width:15px;height:15px;padding:0;border:none;border-radius:3px;background:none;
+  cursor:pointer;font-size:11px;line-height:1;color:var(--muted)}
+.copybtn:hover{color:var(--accent-2);background:var(--accent-wash)}
+/* inline "show extra columns" toggle, sits inside the LPV column header next to its label */
+.colexpand{display:inline-flex;align-items:center;justify-content:center;flex:none;
+  margin-left:2px;padding:0 3px;height:14px;border:none;border-radius:3px;background:none;
+  cursor:pointer;font-size:11px;line-height:1;letter-spacing:0;text-transform:none;
+  color:var(--muted);vertical-align:middle}
+.colexpand:hover{color:var(--accent-2)}
+.colexpand.on{color:var(--accent-2);font-weight:700}
+
 /* share bar behind number */
 .sh{position:relative;display:block;padding:2px 4px;border-radius:4px;overflow:hidden;text-align:right}
 .sh .bar{position:absolute;inset:0 auto 0 0;background:var(--seq-2);border-radius:3px;z-index:0}
@@ -3984,10 +4001,7 @@ function sec2(c) {
 
   /* Naval asked for the scatter charts to stay out of the way until asked for, so they sit
      behind a checkbox, off by default. */
-  $("#s2body").innerHTML = `<div style="display:flex;justify-content:flex-end;margin-bottom:6px">
-      <button type="button" class="lnk" id="s2colsToggle">${ST.s2ExtraCols ? "Hide extra columns ▴" : "Show extra columns (CPM, Impressions, Creator, ASC, Category, Type, Concept) ▾"}</button>
-    </div>
-    <div id="s2tbl"></div>
+  $("#s2body").innerHTML = `<div id="s2tbl"></div>
     <div class="card pad" style="margin-top:14px">
       <label class="fcheck"><input type="checkbox" id="s2chartsToggle" ${ST.s2Charts ? "checked" : ""}>Show the ROAS vs Spend / Hook rate / Hold rate charts</label>
     </div>
@@ -4004,7 +4018,6 @@ function sec2(c) {
         <div id="s2plotHold"></div></div>
     </div>`;
   $("#s2chartsToggle").onchange = e => { ST.s2Charts = e.target.checked; render(); };
-  $("#s2colsToggle").onclick = () => { ST.s2ExtraCols = !ST.s2ExtraCols; render(); };
 
   if (ST.s2Charts) {
     scatter($("#s2plotSpend"), lb, { mode: "spend" });
@@ -4028,13 +4041,18 @@ function sec2(c) {
   const byId = id => mCols.find(m => m.id === id);
   const cols = [
     { id: "adName", label: "Ad name", tl: true, stk: true, w: 260, val: r => r.rec.adName,
-      fmt: r => `<span class="wraptext" title="${esc(r.rec.adName)}">${assetAnchor(r.rec, esc(shortAdName(r.rec.adName)))}</span>
-        <button type="button" class="copybtn" data-name="${esc(r.rec.adName)}" title="Copy full ad name">⧉</button>` },
+      fmt: r => `<span class="adnamewrap"><span class="nowrapx" title="${esc(r.rec.adName)}">${assetAnchor(r.rec, esc(shortAdName(r.rec.adName)))}</span>
+        <button type="button" class="copybtn" data-name="${esc(r.rec.adName)}" title="Copy full ad name">⧉</button></span>` },
     { id: "delivery", label: "Delivery", tl: true, stk: true, w: 90, val: r => r.rec.status,
       fmt: r => `<span class="pill ${r.rec.status === "Live" ? "p-live" : "p-inactive"}"><span class="g" style="background:${r.rec.status === "Live" ? "var(--good)" : "var(--bad)"}"></span>${r.rec.status === "Live" ? "Active" : "Inactive"}</span>` },
     { id: "cid", label: "Creative", tl: true, w: 72, val: r => r.rec.cid, fmt: r => esc(r.rec.cid || "-") },
     byId("revenue"), byId("revShare"), byId("spend"), byId("spendShare"), byId("roas"),
-    byId("hook"), byId("hold"), byId("ctr"), byId("cvr"), byId("lpvPct")
+    byId("hook"), byId("hold"), byId("ctr"), byId("cvr"),
+    /* the "show extra columns" toggle lives right next to the LPV header (Naval asked for it
+       inline with the last always-visible column, not as a separate control above the table) -
+       stopPropagation keeps a click on the button from also triggering the header's own
+       sort-column click handler, which is wired on the whole <th>. */
+    (() => { const c = byId("lpvPct"); return c ? { ...c, label: `${c.label} <button type="button" class="colexpand${ST.s2ExtraCols ? " on" : ""}" id="s2colsToggle" title="${ST.s2ExtraCols ? "Hide extra columns" : "Show extra columns: CPM, Impressions, Creator, ASC, Category, Type, Concept"}">···</button>` } : null; })()
   ].filter(Boolean);
   if (ST.s2ExtraCols) cols.push(...[
     byId("cpm"), byId("impressions"),
@@ -4058,6 +4076,24 @@ function sec2(c) {
       setTimeout(() => { if (btn.isConnected) btn.textContent = prev; }, 1200);
     }).catch(() => {});
   };
+  /* This button sits INSIDE the LPV <th>, which renderTable already gives its own click
+     handler for sorting - a plain bubble-phase listener on #s2tbl would fire AFTER that sort
+     handler already ran (th is closer to the click than #s2tbl), so stopPropagation there is
+     too late to stop the accidental sort. Listening in the CAPTURE phase on the stable #s2tbl
+     div fires before the bubble reaches th, so it actually prevents it - and because it's
+     bound to #s2tbl (not the button itself, which renderTable recreates on every column
+     resize-drag), it keeps working after those redraws too. Stored on the node and replaced
+     each render rather than added with addEventListener every time, so repeat renders don't
+     stack up duplicate listeners that would fire more than once per click. */
+  const tblHost = $("#s2tbl");
+  if (tblHost._colExpandCapture) tblHost.removeEventListener("click", tblHost._colExpandCapture, true);
+  tblHost._colExpandCapture = e => {
+    if (!e.target.closest(".colexpand")) return;
+    e.stopPropagation();
+    ST.s2ExtraCols = !ST.s2ExtraCols;
+    render();
+  };
+  tblHost.addEventListener("click", tblHost._colExpandCapture, true);
   $("#s2body").insertAdjacentHTML("beforeend", howToRead(c));
 }
 
