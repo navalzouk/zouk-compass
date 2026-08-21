@@ -270,13 +270,16 @@ tbody tr.tot td.stk{background:var(--card-2);z-index:26}
   width:15px;height:15px;padding:0;border:none;border-radius:3px;background:none;
   cursor:pointer;font-size:11px;line-height:1;color:var(--muted)}
 .copybtn:hover{color:var(--accent-2);background:var(--accent-wash)}
-/* inline "show extra columns" toggle, sits inside the LPV column header next to its label */
-.colexpand{display:inline-flex;align-items:center;justify-content:center;flex:none;
-  margin-left:2px;padding:0 3px;height:14px;border:none;border-radius:3px;background:none;
-  cursor:pointer;font-size:11px;line-height:1;letter-spacing:0;text-transform:none;
-  color:var(--muted);vertical-align:middle}
-.colexpand:hover{color:var(--accent-2)}
-.colexpand.on{color:var(--accent-2);font-weight:700}
+/* "show extra columns" toggle - lives in the table's own trailing spacer header cell (th.sp),
+   outside any sortable column, so it reads as a standalone control rather than crowding a
+   column label. Sized up and labelled so it's easy to spot at the end of the header row. */
+.colexpand{display:inline-flex;align-items:center;justify-content:center;gap:5px;flex:none;
+  margin:0 10px;padding:4px 10px;border:1px solid var(--border-2);border-radius:999px;
+  background:var(--card);cursor:pointer;font-size:12px;font-weight:600;line-height:1;
+  letter-spacing:0;text-transform:none;color:var(--accent-2);white-space:nowrap}
+.colexpand .dots{font-size:16px;font-weight:700;letter-spacing:1px;line-height:1}
+.colexpand:hover{background:var(--accent-wash);border-color:var(--accent)}
+.colexpand.on{background:var(--accent-wash);border-color:var(--accent)}
 
 /* share bar behind number */
 .sh{position:relative;display:block;padding:2px 4px;border-radius:4px;overflow:hidden;text-align:right}
@@ -426,6 +429,13 @@ th.sp:hover{background:var(--card-2)}
 .fcheck{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink-2);
   white-space:nowrap;cursor:pointer}
 .fcheck input{accent-color:var(--accent);margin:0;width:13px;height:13px}
+/* chart-visibility checkboxes (Creative Podium) - each one highlights on its own when checked,
+   so it's obvious at a glance which of the 3 charts below are currently showing */
+.chartpicks{display:flex;flex-wrap:wrap;gap:8px}
+.chartpicks .fcheck{padding:6px 11px;border:1px solid var(--border-2);border-radius:8px;
+  background:var(--card);font-size:12px;font-weight:500;color:var(--ink-2)}
+.chartpicks .fcheck.on{background:var(--accent-wash);border-color:var(--accent);
+  color:var(--accent-2);font-weight:600}
 
 /* context strip under a section heading */
 .strip{width:100%;display:flex;flex-wrap:wrap;gap:0;margin:-2px 0 12px;border:1px solid var(--border);
@@ -2992,7 +3002,7 @@ const TAB_FILTERS = {
 
 const ST = { sel: {}, q: "", splitAsc: true,
              period: "ALL", dFrom: null, dTo: null, sort: {}, colW: {},
-             s2Charts: false, selectedAd: null, s2ExtraCols: false };
+             s2ChartsSel: { spend: false, hook: false, hold: false }, selectedAd: null, s2ExtraCols: false };
 FDEF.forEach(f => ST.sel[f.id] = new Set());
 
 function passes(r, skipId) {
@@ -3228,7 +3238,7 @@ function renderTable(host, id, cols, rows, opts = {}) {
   const widthCtl = c => (c.w && !c.noResize) ? `<span class="rsz" data-col="${c.id}" title="Drag to resize"></span>` : "";
   const head = `<th class="tl stk sn" style="left:0;width:${SERIAL_W}px">#</th>` +
     cols.map(c => `<th class="${c.tl ? "tl" : ""}${stkCls(c)} ${c.id === s.k ? "sorted" : ""}"
-      data-k="${c.id}" ${c.note ? `title="${esc(c.note)}"` : ""} style="${c.w ? "width:" + c.w + "px;max-width:" + c.w + "px;" : ""}${stickyLeft(c)}">${c.label}<span class="ar">${c.id === s.k ? (s.d < 0 ? "\u25BC" : "\u25B2") : "\u21C5"}</span>${widthCtl(c)}</th>`).join("") + '<th class="sp"></th>';
+      data-k="${c.id}" ${c.note ? `title="${esc(c.note)}"` : ""} style="${c.w ? "width:" + c.w + "px;max-width:" + c.w + "px;" : ""}${stickyLeft(c)}">${c.label}<span class="ar">${c.id === s.k ? (s.d < 0 ? "\u25BC" : "\u25B2") : "\u21C5"}</span>${widthCtl(c)}</th>`).join("") + `<th class="sp">${opts.spHeader || ""}</th>`;
 
   const body = shown.map((r, i) => `<tr><td class="tl stk sn" style="left:0;width:${SERIAL_W}px">${i + 1}</td>` + cols.map(c => {
     const heat = c.heat ? c.heat(r) : null;
@@ -3880,7 +3890,7 @@ function howToRead(c) {
 /* ============================ TABS ===================================== */
 const SECTIONS = [
   ["s1", "ASC Scoreboard", "ASC Summary. Overall performance for the selected ASCs, categories and period.", "1", "ASC Scoreboard"],
-  ["s2", "Creative Podium", "Creative Leaderboard. Every creative: scale winners, promising ads, weak ads, live vs paused.", "2", "Creative Podium"],
+  ["s2", "Creative Podium", "", "2", "Creative Podium"],
   ["s3", "Persona Pulse", "Persona Ranking. Which personas are driving performance.", "3", "Persona Pulse"],
   ["s4", "Concept Motive", "Concept Ranking. Which creative concepts are working, and why people buy.", "4", "Concept Motive"],
   ["s5", "Format Wars", "Format Ranking. Which formats are working, split video vs static.", "5", "Format Wars"],
@@ -3985,58 +3995,51 @@ function sec2(c) {
               spend: a.spend, revenue: a.revenue, roas: a.roas });
   });
 
-  $("#s2strip").innerHTML = stripHTML([
-    ["", fmtCount(lb.length) + " ads", "lead"],
-    ["Spend", fmtMoney(tot.spend)],
-    ["Revenue", fmtMoney(tot.revenue)],
-    ["ROAS", fmtRatio(tot.roas), tot.roas === null ? "" : tot.roas > ROAS_WIN ? "g" : tot.roas >= ROAS_WATCH ? "w" : "b"],
-    ["Purchases", fmtCount(tot.purchases)],
-    ["CPA", tot.cpa ? fmtMoneyFull(tot.cpa) : "-"],
-    ["CTR", fmtPct(tot.ctr, 2)],
-    ["CVR", fmtPct(tot.cvr, 2)],
-    tot.hook !== null ? ["Hook", fmtPct(tot.hook, 1), tot.hook >= HOOK_MIN ? "g" : "b"] : null,
-    tot.hold !== null ? ["Hold", fmtPct(tot.hold, 1), tot.hold >= HOLD_MIN ? "g" : "b"] : null,
-    ["Live", tot.live + " / " + rows.length]
-  ]);
-
-  /* Naval asked for the scatter charts to stay out of the way until asked for, so they sit
-     behind a checkbox, off by default. */
+  /* Naval asked for the scatter charts to stay out of the way until asked for, so each one
+     sits behind its own checkbox, off by default, and any combination can be shown at once. */
+  const chartDefs = [
+    { key: "spend", label: "ROAS vs Spend" },
+    { key: "hook", label: "ROAS vs Hook rate" },
+    { key: "hold", label: "ROAS vs Hold rate" }
+  ];
   $("#s2body").innerHTML = `<div id="s2tbl"></div>
     <div class="card pad" style="margin-top:14px">
-      <label class="fcheck"><input type="checkbox" id="s2chartsToggle" ${ST.s2Charts ? "checked" : ""}>Show the ROAS vs Spend / Hook rate / Hold rate charts</label>
+      <div class="chartpicks">${chartDefs.map(d => `<label class="fcheck${ST.s2ChartsSel[d.key] ? " on" : ""}"><input type="checkbox" class="s2chartToggle" data-chart="${d.key}" ${ST.s2ChartsSel[d.key] ? "checked" : ""}>${d.label}</label>`).join("")}</div>
     </div>
-    <div id="s2charts" style="${ST.s2Charts ? "" : "display:none"}">
-      <div class="card pad" style="margin-top:14px"><h4 style="margin:0 0 2px;font-size:13px">ROAS vs Spend</h4>
+    <div id="s2charts">
+      <div class="card pad" id="s2cardSpend" style="margin-top:14px${ST.s2ChartsSel.spend ? "" : ";display:none"}"><h4 style="margin:0 0 2px;font-size:13px">ROAS vs Spend</h4>
         <p style="margin:0 0 4px;font-size:11.5px;color:var(--muted)">Every ad, spend on the x-axis, ROAS on the y-axis. Bubble size = revenue.</p>
         <div id="s2plotSpend"></div>
       </div>
-      <div class="card pad" style="margin-top:14px"><h4 style="margin:0 0 2px;font-size:13px">ROAS vs Hook rate</h4>
+      <div class="card pad" id="s2cardHook" style="margin-top:14px${ST.s2ChartsSel.hook ? "" : ";display:none"}"><h4 style="margin:0 0 2px;font-size:13px">ROAS vs Hook rate</h4>
         <p style="margin:0 0 4px;font-size:11.5px;color:var(--muted)">Video ads only - are the ones that stop the scroll also the ones that convert?</p>
         <div id="s2plotHook"></div></div>
-      <div class="card pad" style="margin-top:14px"><h4 style="margin:0 0 2px;font-size:13px">ROAS vs Hold rate</h4>
+      <div class="card pad" id="s2cardHold" style="margin-top:14px${ST.s2ChartsSel.hold ? "" : ";display:none"}"><h4 style="margin:0 0 2px;font-size:13px">ROAS vs Hold rate</h4>
         <p style="margin:0 0 4px;font-size:11.5px;color:var(--muted)">Video ads only - are the ones that hold attention also the ones that convert?</p>
         <div id="s2plotHold"></div></div>
     </div>`;
-  $("#s2chartsToggle").onchange = e => { ST.s2Charts = e.target.checked; render(); };
+  $("#s2body").querySelectorAll(".s2chartToggle").forEach(cb => cb.onchange = e => {
+    ST.s2ChartsSel[e.target.dataset.chart] = e.target.checked;
+    render();
+  });
 
-  if (ST.s2Charts) {
-    scatter($("#s2plotSpend"), lb, { mode: "spend" });
-    scatter($("#s2plotHook"), lb, {
-      mode: "pct", xVal: p => p.a.hook, xAxisLabel: "Hook rate →",
-      refValue: HOOK_MIN, refLabel: fmtPct(HOOK_MIN, 0) + " Hook benchmark",
-      ariaLabel: "Hook rate versus ROAS by ad"
-    });
-    scatter($("#s2plotHold"), lb, {
-      mode: "pct", xVal: p => p.a.hold, xAxisLabel: "Hold rate →",
-      refValue: HOLD_MIN, refLabel: fmtPct(HOLD_MIN, 0) + " Hold benchmark",
-      ariaLabel: "Hold rate versus ROAS by ad"
-    });
-  }
+  if (ST.s2ChartsSel.spend) scatter($("#s2plotSpend"), lb, { mode: "spend" });
+  if (ST.s2ChartsSel.hook) scatter($("#s2plotHook"), lb, {
+    mode: "pct", xVal: p => p.a.hook, xAxisLabel: "Hook rate →",
+    refValue: HOOK_MIN, refLabel: fmtPct(HOOK_MIN, 0) + " Hook benchmark",
+    ariaLabel: "Hook rate versus ROAS by ad"
+  });
+  if (ST.s2ChartsSel.hold) scatter($("#s2plotHold"), lb, {
+    mode: "pct", xVal: p => p.a.hold, xAxisLabel: "Hold rate →",
+    refValue: HOLD_MIN, refLabel: fmtPct(HOLD_MIN, 0) + " Hold benchmark",
+    ariaLabel: "Hold rate versus ROAS by ad"
+  });
 
-  /* Fixed sequence Naval asked for: name/delivery/creative code up front, then Revenue through
-     LPV% always visible, with the rarer-use descriptive + CPM/Impressions columns tucked behind
-     the "Show extra columns" toggle above so the everyday table stays narrow. Trend button is
-     intentionally gone for now - a replacement is coming in a different form later. */
+  /* Fixed sequence Naval asked for: name/delivery/creative code/type up front, then Revenue
+     through LPV% always visible, with the rarer-use descriptive + CPM/Impressions columns
+     tucked behind the "show extra columns" toggle in the table's own trailing header cell so
+     the everyday table stays narrow. Trend button is intentionally gone for now - a
+     replacement is coming in a different form later. */
   const mCols = metricCols(tot, { ...shareCaps(lb, tot), rows: lb });
   const byId = id => mCols.find(m => m.id === id);
   const cols = [
@@ -4046,24 +4049,27 @@ function sec2(c) {
     { id: "delivery", label: "Delivery", tl: true, stk: true, w: 90, val: r => r.rec.status,
       fmt: r => `<span class="pill ${r.rec.status === "Live" ? "p-live" : "p-inactive"}"><span class="g" style="background:${r.rec.status === "Live" ? "var(--good)" : "var(--bad)"}"></span>${r.rec.status === "Live" ? "Active" : "Inactive"}</span>` },
     { id: "cid", label: "Creative", tl: true, w: 72, val: r => r.rec.cid, fmt: r => esc(r.rec.cid || "-") },
+    { id: "ctype", label: "Type", tl: true, w: 54, val: r => r.rec.contentType, fmt: r => esc(r.rec.contentType) },
     byId("revenue"), byId("revShare"), byId("spend"), byId("spendShare"), byId("roas"),
-    byId("hook"), byId("hold"), byId("ctr"), byId("cvr"),
-    /* the "show extra columns" toggle lives right next to the LPV header (Naval asked for it
-       inline with the last always-visible column, not as a separate control above the table) -
-       stopPropagation keeps a click on the button from also triggering the header's own
-       sort-column click handler, which is wired on the whole <th>. */
-    (() => { const c = byId("lpvPct"); return c ? { ...c, label: `${c.label} <button type="button" class="colexpand${ST.s2ExtraCols ? " on" : ""}" id="s2colsToggle" title="${ST.s2ExtraCols ? "Hide extra columns" : "Show extra columns: CPM, Impressions, Creator, ASC, Category, Type, Concept"}">···</button>` } : null; })()
+    byId("hook"), byId("hold"), byId("ctr"), byId("cvr"), byId("lpvPct")
   ].filter(Boolean);
   if (ST.s2ExtraCols) cols.push(...[
     byId("cpm"), byId("impressions"),
     { id: "creator", label: "Creator", tl: true, w: 110, val: r => r.rec.creator, fmt: r => `<span class="nowrapx" title="${esc(r.rec.creator)}">${esc(r.rec.creator)}</span>` },
     { ...ascCol, w: 220, val: r => r.rec.campaign, fmt: r => `<span class="nowrapx" title="${esc(r.rec.campaign)}">${esc(shortAsc(r.rec.campaign))}</span>` },
     { id: "cat", label: "Category", tl: true, w: 120, val: r => r.rec.category, fmt: r => `<span class="nowrapx" title="${esc(r.rec.category)}">${esc(r.rec.category)}</span>` },
-    { id: "ctype", label: "Type", tl: true, w: 54, val: r => r.rec.contentType, fmt: r => esc(r.rec.contentType) },
     { id: "conceptFormat", label: "Concept / Format", tl: true, w: 200, noResize: true, val: r => r.rec.concept,
       fmt: r => `<span class="nowrapx" title="${esc(r.rec.cCode)} · ${esc(r.rec.concept)}">${esc(r.rec.cCode)} · ${esc(r.rec.concept)}</span><span class="sub2eq nowrapx" title="${esc(r.rec.fCode)} · ${esc(r.rec.format)}">${esc(r.rec.fCode)} · ${esc(r.rec.format)}</span>` }
   ].filter(Boolean));
-  renderTable($("#s2tbl"), "s2", cols, lb, { total: tot, rowNoun: "ads" });
+  /* The "show extra columns" toggle now lives in the table's own trailing spacer header cell
+     (th.sp) via renderTable's opts.spHeader, outside every sortable column - so unlike the old
+     in-header placement it no longer needs a capture-phase workaround to dodge an accidental
+     sort-click: th.sp carries no data-k, so renderTable's own sort wiring never touches it.
+     The onclick is inline in the markup (rather than bound via JS after the fact) so it keeps
+     working through column-resize redraws, which call renderTable directly and only rewire
+     the handlers renderTable itself owns. */
+  const colExpandHtml = `<button type="button" class="colexpand${ST.s2ExtraCols ? " on" : ""}" onclick="toggleS2ExtraCols()" title="${ST.s2ExtraCols ? "Hide extra columns" : "Show extra columns: CPM, Impressions, Creator, ASC, Category, Concept"}"><span class="dots">${ST.s2ExtraCols ? "▲" : "···"}</span>${ST.s2ExtraCols ? "fewer cols" : "for more cols"}</button>`;
+  renderTable($("#s2tbl"), "s2", cols, lb, { total: tot, rowNoun: "ads", spHeader: colExpandHtml });
   /* delegated on the table's host div (not the individual buttons) so a copy click still
      works after the header drag-resize handler re-renders just this table's own markup */
   $("#s2tbl").onclick = e => {
@@ -4076,25 +4082,15 @@ function sec2(c) {
       setTimeout(() => { if (btn.isConnected) btn.textContent = prev; }, 1200);
     }).catch(() => {});
   };
-  /* This button sits INSIDE the LPV <th>, which renderTable already gives its own click
-     handler for sorting - a plain bubble-phase listener on #s2tbl would fire AFTER that sort
-     handler already ran (th is closer to the click than #s2tbl), so stopPropagation there is
-     too late to stop the accidental sort. Listening in the CAPTURE phase on the stable #s2tbl
-     div fires before the bubble reaches th, so it actually prevents it - and because it's
-     bound to #s2tbl (not the button itself, which renderTable recreates on every column
-     resize-drag), it keeps working after those redraws too. Stored on the node and replaced
-     each render rather than added with addEventListener every time, so repeat renders don't
-     stack up duplicate listeners that would fire more than once per click. */
-  const tblHost = $("#s2tbl");
-  if (tblHost._colExpandCapture) tblHost.removeEventListener("click", tblHost._colExpandCapture, true);
-  tblHost._colExpandCapture = e => {
-    if (!e.target.closest(".colexpand")) return;
-    e.stopPropagation();
-    ST.s2ExtraCols = !ST.s2ExtraCols;
-    render();
-  };
-  tblHost.addEventListener("click", tblHost._colExpandCapture, true);
   $("#s2body").insertAdjacentHTML("beforeend", howToRead(c));
+}
+/* Global (not scoped inside sec2) because it's invoked from an inline onclick= attribute
+   baked into the header markup itself - that markup gets regenerated by renderTable on every
+   redraw, including the column-resize-drag path that never runs sec2's own JS-side rebinding,
+   so an inline attribute is what keeps this working across every redraw, not just the first. */
+function toggleS2ExtraCols() {
+  ST.s2ExtraCols = !ST.s2ExtraCols;
+  render();
 }
 
 /* shared ranking builder */
@@ -4388,7 +4384,7 @@ function skeleton() {
     `<section id="${id}">
       <div class="pinhead"><div class="pinhead-in">
         <div class="shead"><span class="snum">${n}</span>
-          <h2>${title}</h2><p>${desc}</p><div class="right" id="${id}right"></div></div>
+          <h2>${title}</h2>${desc ? `<p>${desc}</p>` : ""}<div class="right" id="${id}right"></div></div>
         <div id="${id}strip"></div>
       </div></div>
       <div id="${id}body"></div></section>`).join("");
