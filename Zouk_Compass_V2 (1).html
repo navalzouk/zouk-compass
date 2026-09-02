@@ -1430,7 +1430,7 @@ function grouped(rows, dims, opts = {}) {
   });
   return out;
 }
-const ascCol = { id: "campaign", label: "ASC", tl: true, w: 230,
+const ascCol = { id: "campaign", label: "ASC", tl: true, w: 230, rawText: true,
   val: r => r.campaign,
   fmt: r => `<span class="nowrapx" title="${esc(r.campaign)}">${esc(shortAsc(r.campaign))}</span>` +
             (r.ascN ? `<span class="sub2">${r.ascN} ASCs combined</span>` : "") };
@@ -2154,7 +2154,7 @@ function sec2(c) {
   const mCols = metricCols(tot, { ...shareCaps(lb, tot), rows: lb });
   const byId = id => mCols.find(m => m.id === id);
   const cols = [
-    { id: "adName", label: "Ad name", tl: true, stk: true, w: 260, val: r => r.rec.adName,
+    { id: "adName", label: "Ad name", tl: true, stk: true, w: 260, rawText: true, val: r => r.rec.adName,
       fmt: r => `<span class="adnamewrap"><span class="nowrapx" title="${esc(r.rec.adName)}">${esc(shortAdName(r.rec.adName))}</span>
         <button type="button" class="copybtn" data-name="${esc(r.rec.adName)}" title="Copy full ad name">⧉</button></span>` },
     { id: "insta", label: "Instagram", tl: true, w: 76, rawText: true, val: r => r.rec.igLink || "",
