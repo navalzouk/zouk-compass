@@ -1255,6 +1255,12 @@ function renderTable(host, id, cols, rows, opts = {}) {
   const mfAvail = MF_DEFS.filter(m => cols.some(c => c.id === m.k));
   const mfOn = mfAvail.filter(m => ST.mf[m.k]);
   if (mfOn.length) rows = rows.filter(r => mfOn.every(m => { const v = cols.find(c => c.id === m.k).val(r); return v !== null && v !== undefined && isFinite(v) && v >= (+ST.mfv[m.k]) / m.div; }));
+  /* with a metric filter on, the Total row must sum only the rows that survived it */
+  if (mfOn.length) {
+    const recs = rows.flatMap(r => r.rows ? r.rows : (r.rec ? [r.rec] : []));
+    opts = Object.assign({}, opts, { total: agg(recs) });
+    cols = cols.map(c => c.id === "ads" ? Object.assign({}, c, { tot: () => fmtInt(c.label === "Live ads" ? rows.reduce((s, r) => s + (+c.val(r) || 0), 0) : uniqAdCount(recs)) }) : c);
+  }
   const mfChips = mfAvail.length ? `<span class="mfsep"></span>` + mfAvail.map(m => `<label class="mfchip${ST.mf[m.k] ? " on" : ""}" title="Tick to show only rows with ${m.l} at or above the value; edit the number to change the threshold"><input type="checkbox" data-mf="${m.k}" ${ST.mf[m.k] ? "checked" : ""}> ${m.l} \u2265 <input type="number" class="mfnum" data-mfv="${m.k}" value="${ST.mfv[m.k]}" step="${m.k === "roas" ? 0.1 : 0.1}" min="0">${m.u}</label>`).join("") : "";
   const s = ST.sort[id] || opts.sort || { k: cols.find(c => c.id === "spend") ? "spend" : cols[0].id, d: -1 };
   ST.sort[id] = s;
