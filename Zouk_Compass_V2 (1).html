@@ -507,6 +507,10 @@ h3.subhead{font-size:12.5px;color:var(--ink);margin:0 0 6px;font-weight:600}
 th.sn,td.sn{color:var(--muted);font-size:11px;text-align:right;padding-right:9px}
 tbody td.sn{font-variant-numeric:tabular-nums}
 .more{display:flex;align-items:center;gap:9px;padding:8px 2px 0;font-size:11.5px;color:var(--muted)}
+.more .mfsep{flex:0 0 1px;height:18px;background:var(--border-2);margin:0 4px}
+.more .mfchip{display:inline-flex;align-items:center;gap:5px;height:27px;padding:0 10px;border:1px solid var(--border-2);border-radius:var(--r-sm);background:var(--surface,#fff);color:var(--ink);cursor:pointer;font-size:11.5px;white-space:nowrap}
+.more .mfchip.on{background:var(--accent-wash);border-color:var(--accent)}
+.more .mfnum{width:46px;height:20px;border:1px solid var(--border-2);border-radius:4px;padding:0 4px;font-size:11.5px;background:#fff;color:var(--ink)}
 .more b{color:var(--ink);font-variant-numeric:tabular-nums}
 .more button{height:27px;padding:0 12px;border:1px solid var(--border-2);border-radius:var(--r-sm);
   background:var(--card);cursor:pointer;font-size:11.5px;color:var(--accent-2);font-weight:500;transition:.13s}
@@ -1231,6 +1235,9 @@ function paintPeriod() {
 /* ============================ TABLE ENGINE ============================= */
 const ROW_STEP = 10;
 ST.limit = {};
+ST.mf = {};
+const MF_DEFS = [{ k: "ctr", l: "CTR", u: "%", d: 1, div: 100 }, { k: "cvr", l: "CVR", u: "%", d: 1, div: 100 }, { k: "roas", l: "ROAS", u: "", d: 1.5, div: 1 }];
+ST.mfv = { ctr: 1, cvr: 1, roas: 1.5 };
 
 /* Snapshot of the currently-rendered rows/columns for every table, keyed by the same
    table id renderTable() is called with (eg. "s2", "s5v", "s5s"). Populated at the bottom
@@ -1244,6 +1251,11 @@ function renderTable(host, id, cols, rows, opts = {}) {
      ST so they survive re-renders (sorting, filtering, show more) until the page reloads */
   const colW = ST.colW[id] || (ST.colW[id] = {});
   cols.forEach(c => { if (c.w && colW[c.id] != null) c.w = colW[c.id]; });
+  /* quick metric filters (CTR / CVR / ROAS thresholds) - offered on any table that has the column */
+  const mfAvail = MF_DEFS.filter(m => cols.some(c => c.id === m.k));
+  const mfOn = mfAvail.filter(m => ST.mf[m.k]);
+  if (mfOn.length) rows = rows.filter(r => mfOn.every(m => { const v = cols.find(c => c.id === m.k).val(r); return v !== null && v !== undefined && isFinite(v) && v >= (+ST.mfv[m.k]) / m.div; }));
+  const mfChips = mfAvail.length ? `<span class="mfsep"></span>` + mfAvail.map(m => `<label class="mfchip${ST.mf[m.k] ? " on" : ""}" title="Tick to show only rows with ${m.l} at or above the value; edit the number to change the threshold"><input type="checkbox" data-mf="${m.k}" ${ST.mf[m.k] ? "checked" : ""}> ${m.l} \u2265 <input type="number" class="mfnum" data-mfv="${m.k}" value="${ST.mfv[m.k]}" step="${m.k === "roas" ? 0.1 : 0.1}" min="0">${m.u}</label>`).join("") : "";
   const s = ST.sort[id] || opts.sort || { k: cols.find(c => c.id === "spend") ? "spend" : cols[0].id, d: -1 };
   ST.sort[id] = s;
   const col = cols.find(c => c.id === s.k) || cols[0];
@@ -1313,9 +1325,12 @@ function renderTable(host, id, cols, rows, opts = {}) {
     : (sorted.length > ROW_STEP
       ? `<div class="more"><span>Showing all <b>${sorted.length}</b> rows</span><button data-more="reset">Collapse to ${ROW_STEP}</button></div>` : "");
 
+  const moreAll = more ? more.replace(/<\/div>\s*$/, mfChips + "</div>") : (mfChips ? `<div class="more">${mfChips}</div>` : "");
   host.innerHTML = rows.length
-    ? `<div class="tw ${opts.short ? "short" : ""}"><table><thead><tr>${head}</tr></thead><tbody>${foot}${body}</tbody></table></div>${more}`
-    : `<div class="tw short"><div class="empty">No ads match the current filters.</div></div>`;
+    ? `<div class="tw ${opts.short ? "short" : ""}"><table><thead><tr>${head}</tr></thead><tbody>${foot}${body}</tbody></table></div>${moreAll}`
+    : `<div class="tw short"><div class="empty">No rows match the current filters.</div></div>${moreAll}`;
+  host.querySelectorAll("input[data-mf]").forEach(b => b.onchange = () => { ST.mf[b.dataset.mf] = b.checked; ST.limit[id] = ROW_STEP; render(); });
+  host.querySelectorAll("input[data-mfv]").forEach(b => { b.onclick = e => e.stopPropagation(); b.onchange = () => { const v = parseFloat(b.value); if (isFinite(v) && v >= 0) { ST.mfv[b.dataset.mfv] = v; ST.mf[b.dataset.mfv] = true; ST.limit[id] = ROW_STEP; render(); } }; });
 
   if (!EXPORT_HOST) EXPORT_HOST = host;
   host.querySelectorAll("thead th[data-k]").forEach(th => th.onclick = () => {
