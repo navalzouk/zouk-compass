@@ -1257,7 +1257,7 @@ function renderTable(host, id, cols, rows, opts = {}) {
   if (mfOn.length) rows = rows.filter(r => mfOn.every(m => { const v = cols.find(c => c.id === m.k).val(r); return v !== null && v !== undefined && isFinite(v) && v >= (+ST.mfv[m.k]) / m.div; }));
   /* with a metric filter on, the Total row must sum only the rows that survived it */
   if (mfOn.length) {
-    const recs = rows.flatMap(r => r.rows ? r.rows : (r.rec ? [r.rec] : []));
+    const recs = rows.flatMap(r => r.rows ? r.rows : (r.rowsAll ? r.rowsAll : (r.rec ? [r.rec] : [])));
     opts = Object.assign({}, opts, { total: agg(recs) });
     cols = cols.map(c => c.id === "ads" ? Object.assign({}, c, { tot: () => fmtInt(c.label === "Live ads" ? rows.reduce((s, r) => s + (+c.val(r) || 0), 0) : uniqAdCount(recs)) }) : c);
   }
