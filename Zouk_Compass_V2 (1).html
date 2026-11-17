@@ -1075,9 +1075,10 @@ function makeMulti(f) {
   }
   function paint() {
     const q = search.value.toLowerCase();
-    list.innerHTML = opts().filter(([k]) => String(k).toLowerCase().includes(q))
+    const dsp = k => f.short ? f.short(k) : k;
+    list.innerHTML = opts().filter(([k]) => (String(k) + " " + String(dsp(k))).toLowerCase().includes(q))
       .map(([k, c]) => `<label class="ms-opt"><input type="checkbox" value="${esc(k)}"
-          ${ST.sel[f.id].has(k) ? "checked" : ""}><span>${esc(k)}</span><span class="cnt">${c}</span></label>`).join("")
+          ${ST.sel[f.id].has(k) ? "checked" : ""}><span title="${esc(k)}">${esc(dsp(k))}</span><span class="cnt">${c}</span></label>`).join("")
       || '<div style="padding:10px;color:var(--muted);font-size:11.5px">No matches</div>';
   }
   function label() {
